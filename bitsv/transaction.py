@@ -208,8 +208,9 @@ def sanitize_tx_data(unspents, outputs, fee, leftover, combine=True, message=Non
     if remaining > DUST:
         outputs.append((leftover, remaining))
     elif remaining < 0:
-        raise InsufficientFunds('Balance {} is less than {} (including '
-                                'fee).'.format(total_in, total_out))
+        pass
+        # raise InsufficientFunds('Balance {} is less than {} (including '
+        #                         'fee).'.format(total_in, total_out))
 
     outputs.extendleft(messages)
 
@@ -303,6 +304,81 @@ def create_p2pkh_transaction(private_key, unspents, outputs, custom_pushdata=Fal
 
     # scriptCode_len is part of the script.
     for i, txin in enumerate(inputs):
+        to_be_hashed = (
+            version +
+            hashPrevouts +
+            hashSequence +
+            txin.txid +
+            txin.txindex +
+            scriptCode_len +
+            scriptCode +
+            txin.amount +
+            SEQUENCE +
+            hashOutputs +
+            lock_time +
+            hash_type
+        )
+        hashed = sha256(to_be_hashed)  # BIP-143: Used for Bitcoin SV
+
+        # signature = private_key.sign(hashed) + b'\x01'
+        signature = private_key.sign(hashed) + b'\x41'
+
+        script_sig = (
+            len(signature).to_bytes(1, byteorder='little') +
+            signature +
+            public_key_len +
+            public_key
+        )
+
+        inputs[i].script = script_sig
+        inputs[i].script_len = int_to_varint(len(script_sig))
+
+    return bytes_to_hex(
+        version +
+        input_count +
+        construct_input_block(inputs) +
+        output_count +
+        output_block +
+        lock_time
+    )
+
+
+def create_p2pkh_tx_multikeys(private_keys, unspents, outputs, custom_pushdata=False):
+    if len(private_keys) != len(unspents):
+        raise ValueError("'private_keys' count ({}) doesn't match 'unspent' count ({}).".format(len(private_keys), len(unspents)))
+
+    version = VERSION_1
+    lock_time = LOCK_TIME
+    # sequence = SEQUENCE
+    hash_type = HASH_TYPE
+    input_count = int_to_varint(len(unspents))
+    output_count = int_to_varint(len(outputs))
+
+    output_block = construct_output_block(outputs, custom_pushdata=custom_pushdata)
+
+    # Optimize for speed, not memory, by pre-computing values.
+    inputs = []
+    for unspent in unspents:
+        txid = hex_to_bytes(unspent.txid)[::-1]
+        txindex = unspent.txindex.to_bytes(4, byteorder='little')
+        amount = unspent.amount.to_bytes(8, byteorder='little')
+
+        inputs.append(TxIn('', 0, txid, txindex, amount))
+
+    hashPrevouts = double_sha256(b''.join([i.txid+i.txindex for i in inputs]))
+    hashSequence = double_sha256(b''.join([SEQUENCE for i in inputs]))
+    hashOutputs = double_sha256(output_block)
+
+    # scriptCode_len is part of the script.
+    for i, txin in enumerate(inputs):
+        private_key = private_keys[i]
+
+        public_key = private_key.public_key
+        public_key_len = len(public_key).to_bytes(1, byteorder='little')
+
+        scriptCode = private_key.scriptcode
+        scriptCode_len = int_to_varint(len(scriptCode))
+
         to_be_hashed = (
             version +
             hashPrevouts +
