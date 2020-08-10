@@ -79,7 +79,7 @@ class NetworkAPI:
 
         # Instantiate Normalized apis
         self.bchsvexplorer = BCHSVExplorerAPI  # classmethods, mainnet only
-        self.whatsonchain = WhatsonchainNormalised(network=self.network)
+        self.whatsonchain = WhatsonchainNormalised(network=self.network, api_key="TUWgqqqpRwJwXnQUF9DbAnXS")
 
         # Allows extra apis for 'main' that may not support testnet (e.g. blockchair)
         if network == 'main':
